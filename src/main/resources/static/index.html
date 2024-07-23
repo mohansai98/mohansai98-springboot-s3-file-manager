@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 File Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">S3 File Manager</h1>
+
+        <div id="alertContainer" class="mb-4"></div>
+
+        <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Upload File</h2>
+            <div class="flex items-center">
+                <input type="file" id="fileInput" class="hidden" onchange="updateFileName()">
+                <label for="fileInput"
+                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 cursor-pointer">
+                    <i class="fas fa-cloud-upload-alt mr-2"></i>Choose File
+                </label>
+                <span id="fileName" class="ml-4 text-gray-600"></span>
+                <button onclick="uploadFile()"
+                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ml-4">
+                    <i class="fas fa-upload mr-2"></i>Upload
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-md rounded-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-700">File List</h2>
+                <button onclick="listFiles()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    <i class="fas fa-sync-alt mr-2"></i>Refresh
+                </button>
+            </div>
+            <ul id="fileList" class="space-y-2"></ul>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8080/s3';
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `p-4 mb-4 rounded-md ${type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+            alert.textContent = message;
+            alertContainer.appendChild(alert);
+            setTimeout(() => alertContainer.removeChild(alert), 5000);
+        }
+
+        function updateFileName() {
+            const fileInput = document.getElementById('fileInput');
+            const fileName = document.getElementById('fileName');
+            const file = fileInput.files[0];
+            if (file) {
+                if (file.size > MAX_FILE_SIZE) {
+                    showAlert(`File is too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.`, 'error');
+                    fileInput.value = '';
+                    fileName.textContent = '';
+                } else {
+                    fileName.textContent = file.name;
+                }
+            } else {
+                fileName.textContent = '';
+            }
+        }
+
+        function clearFileInput() {
+            const fileInput = document.getElementById('fileInput');
+            const fileName = document.getElementById('fileName');
+            fileInput.value = '';
+            fileName.textContent = '';
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                showAlert('Please select a file', 'error');
+                return;
+            }
+
+            if (file.size > MAX_FILE_SIZE) {
+                showAlert(`File is too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.`, 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    showAlert('File uploaded successfully', 'success');
+                    clearFileInput();
+                    listFiles();
+                } else {
+                    showAlert('Error uploading file', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showAlert('Error uploading file', 'error');
+            }
+        }
+
+        async function listFiles() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/list`);
+                const files = await response.json();
+                const fileList = document.getElementById('fileList');
+                fileList.innerHTML = '';
+                if(files.length === 0) {
+                    const li = document.createElement('li');
+                    li.textContent = 'No files found';
+                    fileList.appendChild(li);
+                    return;
+                }
+                files.forEach(file => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center justify-between bg-gray-50 p-3 rounded';
+
+                    const fileName = document.createElement('span');
+                    fileName.textContent = file;
+                    fileName.className = 'text-gray-700';
+
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.className = 'space-x-2';
+
+                    const downloadBtn = createButton('fas fa-download', 'bg-blue-500', () => downloadFile(file));
+                    const deleteBtn = createButton('fas fa-trash-alt', 'bg-red-500', () => deleteFile(file));
+
+                    buttonContainer.appendChild(downloadBtn);
+                    buttonContainer.appendChild(deleteBtn);
+
+                    li.appendChild(fileName);
+                    li.appendChild(buttonContainer);
+                    fileList.appendChild(li);
+                });
+            } catch (error) {
+                console.error('Error:', error);
+                showAlert('Error listing files', 'error');
+            }
+        }
+
+        function createButton(iconClass, bgColor, onClickFunction) {
+            const button = document.createElement('button');
+            button.className = `${bgColor} text-white p-2 rounded hover:opacity-80 transition duration-300`;
+            button.onclick = onClickFunction;
+
+            const icon = document.createElement('i');
+            icon.className = iconClass;
+            button.appendChild(icon);
+
+            return button;
+        }
+
+        async function downloadFile(fileName) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/download/${fileName}`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    showAlert('File downloaded successfully', 'success');
+                } else {
+                    showAlert('Error downloading file', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showAlert('Error downloading file', 'error');
+            }
+        }
+
+        async function deleteFile(fileName) {
+            if (confirm(`Are you sure you want to delete ${fileName}?`)) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/delete/${fileName}`, {
+                        method: 'DELETE'
+                    });
+                    if (response.ok) {
+                        showAlert('File deleted successfully', 'success');
+                        listFiles();
+                    } else {
+                        showAlert('Error deleting file', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showAlert('Error deleting file', 'error');
+                }
+            }
+        }
+
+        // Initial file list
+        listFiles();
+    </script>
+</body>
+
+</html>
